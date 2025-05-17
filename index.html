@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Connect-3 Quiz</title>
+  <style>
+    :root { --gold:#d4af37; --black:#000; --panel-bg:#111; --card-bg:#222; }
+    *{margin:0;padding:0;box-sizing:border-box;}
+    body{font-family:Arial,Helvetica,sans-serif;background:var(--black);color:var(--gold);display:flex;height:100vh;overflow:hidden;}
+
+    /* ---------- Side panel ---------- */
+    #side-panel{width:260px;background:var(--panel-bg);padding:12px;display:flex;flex-direction:column;gap:12px;}
+    #side-panel h2{text-align:center;font-size:18px;}
+    #teams{flex:1;overflow-y:auto;}
+    .team-card{background:var(--card-bg);border:1px solid var(--gold);border-radius:6px;padding:6px;display:flex;align-items:center;gap:4px;margin-bottom:6px;}
+    .team-card input[type="text"]{flex:1;background:transparent;border:none;color:var(--gold);font-size:15px;width:80%;}
+    .team-card input[type="color"]{cursor:pointer;width:15%;}
+    .team-score{border:1px solid var(--gold);border-radius:4px;padding:2px 6px;cursor:pointer;}
+    .delete-btn{background:transparent;border:none;color:var(--gold);font-size:16px;cursor:pointer;line-height:1;}
+    button{background:var(--gold);color:var(--black);border:none;border-radius:4px;padding:6px 8px;cursor:pointer;font-size:14px;}
+    .status-label{font-size:14px;text-align:center;color:var(--gold);}
+
+    /* ---------- Main / views ---------- */
+    main{flex:1;position:relative;}
+    .view{position:absolute;inset:0;padding:20px;overflow-y:auto;}
+    .hidden{display:none !important;}
+
+    /* Quiz grid */
+    #quiz-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;max-width:580px;margin:0 auto;}
+    .circle{position:relative;width:100%;aspect-ratio:1/1;transform:scale(0.83);border:3px solid var(--gold);border-radius:50%;cursor:pointer;}
+    .circle-inner{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;border-radius:50%;font-weight:bold;}
+
+    /* Context menu */
+    #context-menu{position:absolute;background:var(--card-bg);border:1px solid var(--gold);display:none;flex-direction:column;z-index:1000;}
+    #context-menu div{padding:6px 12px;cursor:pointer;}
+    #context-menu div:hover{background:#333;}
+
+    /* Question / bonus */
+    #question-images img,#answer-images img{max-width:100%;margin-bottom:10px;border:2px solid var(--gold);}
+    #bonus-grid{
+  display:grid;
+  justify-content:center;  /* horizontal centring */
+  align-items:center;
+  grid-template-columns:repeat(3,1fr);
+  gap:10px;                /* was 14px — a little tighter */
+  max-width:90vmin;        /* shrink grid to 90 % of the shorter viewport side */
+}
+
+.bonus-cell{
+  position:relative;
+  width:100%;
+  aspect-ratio:1/1;        /* replaces the padding-top trick */
+  border:3px solid var(--gold);
+  border-radius:6px;
+  cursor:pointer;
+}
+
+.bonus-inner{
+  position:absolute;
+  inset:0;
+  background-size:contain;
+  background-repeat:no-repeat;
+  background-position:center;
+  border-radius:6px;
+}
+
+    /* ---------- Startup help popup ---------- */
+    #help-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.85);display:flex;align-items:center;justify-content:center;z-index:2000;}
+    #help-box{background:var(--panel-bg);border:2px solid var(--gold);max-width:430px;padding:22px;border-radius:8px;font-size:14px;line-height:1.5;}
+    #help-box h3{margin-top:0;margin-bottom:10px;text-align:center;font-size:18px;}
+    #help-box ul{margin-left:18px;margin-bottom:12px;}
+    #close-help{display:block;margin:0 auto;margin-top:8px;}
+  </style>
+</head>
+<body>
+
+  <!-- ---------- HELP POPUP ---------- -->
+  <div id="help-overlay">
+    <div id="help-box">
+      <h3>📁 How to Prepare Your Images</h3>
+      <strong>Questions / Answers folder:</strong>
+      <ul>
+        <li>Name each question image <code>XX_Q</code> (<code>XX</code>=<code>01</code>-<code>16</code>)</li>
+        <li>Name each answer image <code>XX_A</code></li>
+        <li>For multi-image questions use <code>XX_Q_Y</code> (Y = 1,2…)</li>
+        <li>Any extension (<code>.png</code>, <code>.jpg</code>, <code>.jpeg</code>, <code>.gif</code>) is fine</li>
+      </ul>
+      <strong>Bonus folder:</strong>
+      <ul>
+        <li>Name files <code>01</code>-<code>09</code> (any extension)</li>
+      </ul>
+      <p>🔔 When a team connects <strong>three</strong> circles in a row they may flip one bonus card.</p>
+      <button id="close-help">Got it!</button>
+    </div>
+  </div>
+
+  <!-- ---------- SIDE PANEL ---------- -->
+  <aside id="side-panel">
+    <h2>Quiz Assets</h2>
+
+    <button id="select-q-folder">Select Questions 📁</button>
+    <span id="q-done" class="status-label hidden">Questions uploaded ✓</span>
+
+    <button id="select-b-folder">Select Bonus 📁</button>
+    <span id="b-done" class="status-label hidden">Bonus uploaded ✓</span>
+
+    <button id="reset-app" class="hidden">Reset App</button>
+
+    <input type="file" id="q-input" webkitdirectory directory multiple hidden>
+    <input type="file" id="b-input" webkitdirectory directory multiple hidden>
+
+    <h2>Teams</h2>
+    <div id="teams"></div>
+    <button id="add-team-btn">Add Team</button>
+
+    <div id="timer-block">
+      <h2>Timer</h2>
+      <input type="number" id="timer-input" placeholder="sec" style="width:70px;margin-bottom:6px;">
+      <div style="display:flex;gap:6px;justify-content:center;margin-bottom:6px;">
+        <button id="start-timer">Start</button>
+        <button id="reset-timer">Reset</button>
+      </div>
+      <div id="timer-display" style="text-align:center;font-size:24px;">0</div>
+    </div>
+
+    <button id="nav-main">Main Grid</button>
+    <button id="nav-bonus">Bonus Grid</button>
+  </aside>
+
+  <!-- ---------- MAIN CONTENT ---------- -->
+  <main>
+    <section id="main-view" class="view">
+      <div id="quiz-grid"></div>
+    </section>
+
+    <section id="question-view" class="view hidden">
+      <div id="question-images"></div>
+      <button id="reveal-answer">Reveal Answer</button>
+      <div id="answer-images" class="hidden" style="margin-top:10px;"></div>
+      <button id="back-main" style="margin-top:12px;">Back to Grid</button>
+    </section>
+
+    <section id="bonus-view" class="view hidden">
+      <div id="bonus-grid"></div>
+      <button id="back-main2" style="margin-top:12px;">Back to Grid</button>
+    </section>
+  </main>
+
+  <div id="context-menu"></div>
+
+  <!-- ---------- SCRIPT ---------- -->
+  <script>
+    /* ------------------------------------------------------------------
+       IndexedDB helpers
+    ------------------------------------------------------------------ */
+    const DB='quizDB', STORE='state', KEY='appState';
+    async function openDB(){return new Promise(r=>{const req=indexedDB.open(DB,1);req.onupgradeneeded=()=>req.result.createObjectStore(STORE);req.onsuccess=()=>r(req.result);});}
+    async function loadDB(){const db=await openDB();return new Promise(r=>{db.transaction(STORE).objectStore(STORE).get(KEY).onsuccess=e=>r(e.target.result||null);});}
+    async function saveDB(state){const db=await openDB();db.transaction(STORE,'readwrite').objectStore(STORE).put(state,KEY);}
+    async function clearDB(){const db=await openDB();db.transaction(STORE,'readwrite').objectStore(STORE).clear();}
+
+    /* ------------------------------------------------------------------
+       DOM refs
+    ------------------------------------------------------------------ */
+    const $=id=>document.getElementById(id);
+    const selQ=$('select-q-folder'), selB=$('select-b-folder'), resetBtn=$('reset-app');
+    const qDone=$('q-done'), bDone=$('b-done');
+    const qInput=$('q-input'), bInput=$('b-input');
+    const teamsDiv=$('teams'), addTeamBtn=$('add-team-btn');
+    const quizGrid=$('quiz-grid'), contextMenu=$('context-menu');
+    const mainV=$('main-view'), qV=$('question-view'), bonusV=$('bonus-view');
+    const navMain=$('nav-main'), navBonus=$('nav-bonus');
+    const timerInput=$('timer-input'), startT=$('start-timer'), resetT=$('reset-timer'), timerDisp=$('timer-display');
+    const qImgDiv=$('question-images'), aImgDiv=$('answer-images');
+    const revealBtn=$('reveal-answer'), backBtn=$('back-main'), backBtn2=$('back-main2');
+    const bonusGrid=$('bonus-grid');
+
+    /* ------------------------------------------------------------------
+       Runtime data
+    ------------------------------------------------------------------ */
+    let teams=[], circleColors={};
+    let qFiles=new Map(), bFiles=new Map();
+    let bonusOrder=[], revealedBonuses=new Set();
+    let timerInt=null, currentQ=null;
+
+    /* ---------- pleasant colours ---------- */
+    const TEAM_COLOURS=['#e57373','#64b5f6','#81c784','#ffb74d','#9575cd','#4db6ac','#f06292','#aed581','#ba68c8','#90caf9'];
+    let colourIndex=0;
+
+    /* ------------------------------------------------------------------
+       Helpers
+    ------------------------------------------------------------------ */
+    const getState=()=>({
+      teams,circleColors,bonusOrder,revealed:Array.from(revealedBonuses)
+    });
+    const persist=()=>saveDB(getState());
+
+    /* ------------------------------------------------------------------
+       Factory reset
+    ------------------------------------------------------------------ */
+    async function factoryReset() {
+      // 1. Stop the on-unload autosave so nothing is written back
+      window.removeEventListener('beforeunload', persist);
+
+      // 2. Clear persistent storage
+      await clearDB();                         // empties IndexedDB store
+
+      // 3. Reset all runtime state
+      teams            = [];
+      circleColors     = {};
+      bonusOrder       = [];
+      revealedBonuses.clear();
+      qFiles.clear();
+      bFiles.clear();
+      clearInterval(timerInt);
+      timerDisp.textContent = '0';
+
+      // 4. Reflect the blank state in the current UI (nice to have)
+      renderTeams();
+      colourGrid();
+      buildBonusGrid();
+      updateFolderUI();
+
+      // 5. Reload the page for a truly clean slate
+      location.reload();
+    }
+
+
+    /* ------------------------------------------------------------------
+       Folder pickers
+    ------------------------------------------------------------------ */
+    const loadFiles=(files,map)=>Array.from(files).forEach(f=>map.set(f.name.toLowerCase(),f));
+
+    selQ.onclick=()=>qInput.click();
+    selB.onclick=()=>bInput.click();
+
+    qInput.onchange=e=>{qFiles.clear();loadFiles(e.target.files,qFiles);alert('Questions folder loaded!');updateFolderUI();persist();}
+    bInput.onchange=e=>{bFiles.clear();loadFiles(e.target.files,bFiles);alert('Bonus folder loaded!');buildBonusGrid();updateFolderUI();persist();}
+
+    resetBtn.onclick=()=>confirm('Erase everything and start fresh?')&&factoryReset();
+
+    function updateFolderUI(){
+      const qReady=qFiles.size>0, bReady=bFiles.size>0;
+      selQ.classList.toggle('hidden',qReady); qDone.classList.toggle('hidden',!qReady);
+      selB.classList.toggle('hidden',bReady); bDone.classList.toggle('hidden',!bReady);
+      resetBtn.classList.toggle('hidden',!(qReady&&bReady));
+    }
+
+    /* ------------------------------------------------------------------
+       Teams
+    ------------------------------------------------------------------ */
+    function renderTeams(){
+      teamsDiv.innerHTML='';
+      teams.forEach(team=>{
+        const card=document.createElement('div');card.className='team-card';
+
+        const name=document.createElement('input');name.type='text';name.value=team.name;
+        name.oninput=e=>{team.name=e.target.value;persist();};
+
+        const clr=document.createElement('input');clr.type='color';clr.value=team.color;
+        clr.oninput=e=>{team.color=e.target.value;colourGrid();persist();};
+
+        const score=document.createElement('span');score.className='team-score';score.textContent=team.score;
+        score.onclick=()=>{const v=prompt('Enter new score:',team.score);if(v!==null&&!isNaN(v)){team.score=+v;renderTeams();persist();}};
+
+        const del=document.createElement('button');del.className='delete-btn';del.textContent='✖';
+        del.onclick=()=>{if(confirm(`Delete team "${team.name}"?`)){teams=teams.filter(t=>t!==team);renderTeams();colourGrid();persist();}};
+
+        card.append(name,clr,score,del);teamsDiv.appendChild(card);
+      });
+    }
+
+    addTeamBtn.onclick=()=>{
+      const n=prompt('Team name?');if(!n)return;
+      const colour=TEAM_COLOURS[colourIndex%TEAM_COLOURS.length];colourIndex++;
+      teams.push({name:n,color:colour,score:0});
+      renderTeams();persist();
+    };
+
+    /* ------------------------------------------------------------------
+       Timer
+    ------------------------------------------------------------------ */
+    startT.onclick=()=>{
+      let t=+timerInput.value||0;if(t<=0)return;
+      clearInterval(timerInt);timerDisp.textContent=t;
+      timerInt=setInterval(()=>{if(--t<0){clearInterval(timerInt);alert('⏰ Time\'s up!');}timerDisp.textContent=t;},1000);
+    };
+    resetT.onclick=()=>{clearInterval(timerInt);timerDisp.textContent='0';};
+
+    /* ------------------------------------------------------------------
+       Navigation
+    ------------------------------------------------------------------ */
+    const show=v=>[mainV,qV,bonusV].forEach(el=>el.classList.toggle('hidden',el!==v));
+    navMain.onclick=()=>show(mainV); navBonus.onclick=()=>show(bonusV);
+    backBtn.onclick=backBtn2.onclick=()=>show(mainV);
+
+    /* ------------------------------------------------------------------
+       Quiz grid
+    ------------------------------------------------------------------ */
+    for(let i=1;i<=16;i++){
+      const q=String(i).padStart(2,'0');
+      const cell=document.createElement('div');cell.className='circle';cell.dataset.q=q;
+      const inner=document.createElement('div');inner.className='circle-inner';inner.textContent=q;cell.append(inner);
+      cell.onclick=e=>{e.stopPropagation();openContext(e.pageX,e.pageY,cell);};
+      quizGrid.appendChild(cell);
+    }
+    const colourGrid=()=>document.querySelectorAll('.circle').forEach(c=>c.querySelector('.circle-inner').style.background=circleColors[c.dataset.q]||'');
+
+    /* Context menu */
+    function openContext(x,y,cell){
+      contextMenu.innerHTML='';
+      [
+        {text:'Open Question',fn:()=>openQuestion(cell.dataset.q)},
+        {text:'Color This',fn:()=>colorCell(cell)},
+        {text:'Reset Color',fn:()=>resetColor(cell)}
+      ].forEach(m=>{
+        const d=document.createElement('div');d.textContent=m.text;d.onclick=()=>{contextMenu.style.display='none';m.fn();};contextMenu.appendChild(d);
+      });
+      Object.assign(contextMenu.style,{left:`${x}px`,top:`${y}px`,display:'flex'});
+    }
+    document.onclick=e=>!contextMenu.contains(e.target)&&(contextMenu.style.display='none');
+
+    function colorCell(cell){
+      if(!teams.length)return alert('Add a team first!');
+      const n=prompt('Which team? ('+teams.map(t=>t.name).join(', ')+')');if(!n)return;
+      const t=teams.find(x=>x.name.toLowerCase()===n.toLowerCase());if(!t)return alert('No such team');
+      cell.querySelector('.circle-inner').style.background=t.color;circleColors[cell.dataset.q]=t.color;persist();
+    }
+    function resetColor(cell){cell.querySelector('.circle-inner').style.background='';delete circleColors[cell.dataset.q];persist();}
+
+    /* ------------------------------------------------------------------
+       Question view
+    ------------------------------------------------------------------ */
+    const clear=el=>{while(el.firstChild)el.removeChild(el.firstChild);};
+    function loadPics(container,base){
+      clear(container);
+      const exts=['png','jpg','jpeg','gif'];
+      const tries=[base,...Array.from({length:9},(_,i)=>`${base}_${i+1}`)];
+      tries.forEach(b=>exts.forEach(e=>{
+        const k=`${b}.${e}`.toLowerCase();
+        if(qFiles.has(k)){const img=new Image();img.src=URL.createObjectURL(qFiles.get(k));img.onload=()=>container.appendChild(img);}
+      }));
+    }
+    function openQuestion(q){currentQ=q;show(qV);loadPics(qImgDiv,`${q}_Q`);clear(aImgDiv);aImgDiv.classList.add('hidden');}
+    revealBtn.onclick=()=>{
+      if(aImgDiv.classList.contains('hidden')){loadPics(aImgDiv,`${currentQ}_A`);aImgDiv.classList.remove('hidden');}
+      else{clear(aImgDiv);aImgDiv.classList.add('hidden');}
+    };
+
+    /* ------------------------------------------------------------------
+       Bonus grid
+    ------------------------------------------------------------------ */
+    const shuffle=a=>{for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];}return a;};
+
+    function buildBonusGrid(){
+      bonusGrid.innerHTML='';
+      if(bonusOrder.length!==9){
+        const src=bFiles.size
+          ? Array.from(bFiles.keys()).slice(0,9)
+          : Array.from({length:9},(_,i)=>`${String(i+1).padStart(2,'0')}.png`);
+        bonusOrder=shuffle([...src]);
+      }
+      bonusOrder.forEach(name=>{
+        const cell=document.createElement('div');cell.className='bonus-cell';
+        const inner=document.createElement('div');inner.className='bonus-inner';cell.appendChild(inner);
+        if(revealedBonuses.has(name)) reveal(inner,name);
+        cell.onclick=()=>{
+          if(!revealedBonuses.has(name)) revealedBonuses.add(name);
+          reveal(inner,name);persist();
+        };
+        bonusGrid.appendChild(cell);
+      });
+    }
+    function reveal(el,name){
+      const f=bFiles.get(name.toLowerCase());
+      if(f){el.style.backgroundImage=`url('${URL.createObjectURL(f)}')`;}
+      else{el.style.backgroundImage=`url('bonus/${name}')`;}
+    }
+
+    /* ------------------------------------------------------------------
+       Load saved state + init
+    ------------------------------------------------------------------ */
+    (async()=>{
+      const saved=await loadDB();
+      if(saved){
+        teams=saved.teams||[];circleColors=saved.circleColors||{};
+        bonusOrder=saved.bonusOrder||[];revealedBonuses=new Set(saved.revealed||[]);
+      }
+      renderTeams();colourGrid();buildBonusGrid();updateFolderUI();
+    })();
+
+    $('close-help').onclick=()=>$('help-overlay').style.display='none';
+    window.addEventListener('beforeunload',persist);
+  </script>
+</body>
+</html>
